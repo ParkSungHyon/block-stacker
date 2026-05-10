@@ -1,6 +1,7 @@
 {
   "name": "Block Stacker",
   "short_name": "Block Stacker",
+  "id": "block-stacker",
   "description": "A fun HTML5 block stacking game",
   "start_url": "/block-stacker/",
   "scope": "/block-stacker/",
@@ -11,17 +12,30 @@
   "lang": "ko",
   "icons": [
     {
-      "src": "https://parksunghyon.github.io/block-stacker/icon.svg",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
+      "src": "https://parksunghyon.github.io/block-stacker/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://parksunghyon.github.io/block-stacker/icon.svg",
+      "src": "https://parksunghyon.github.io/block-stacker/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "https://parksunghyon.github.io/block-stacker/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://parksunghyon.github.io/block-stacker/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],
-  "categories": ["games"]
+  "categories": ["games"],
+  "screenshots": []
 }
