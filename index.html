@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f0f1e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<title>Block Stacker</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+html, body { width: 100%; height: 100%; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+body { background: #0f0f1e; background-image: linear-gradient(180deg, #1a1a3e 0%, #0f0f1e 60%, #0a0a14 100%); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: white; position: fixed; inset: 0; }
+#stage { position: relative; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+.hud { position: absolute; top: env(safe-area-inset-top); left: 0; right: 0; display: flex; justify-content: space-between; padding: 16px 20px; pointer-events: none; z-index: 5; }
+.pill { background: rgba(255,255,255,0.08); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 8px 14px; border-radius: 999px; font-size: 13px; letter-spacing: 0.02em; border: 1px solid rgba(255,255,255,0.06); }
+.pill strong { font-weight: 600; margin-left: 6px; font-variant-numeric: tabular-nums; }
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 32px; background: rgba(10,10,20,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 10; transition: opacity 0.25s; }
+.screen.hidden { opacity: 0; pointer-events: none; }
+.screen .title { font-size: 38px; font-weight: 700; letter-spacing: -0.02em; }
+.screen .sub { font-size: 15px; opacity: 0.65; text-align: center; line-height: 1.5; }
+.screen .big-score { font-size: 64px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0; }
+.btn { padding: 14px 38px; font-size: 16px; font-weight: 600; border: 0; border-radius: 999px; background: white; color: #16213e; cursor: pointer; font-family: inherit; transition: transform 0.1s; box-shadow: 0 4px 20px rgba(255,255,255,0.15); }
+.btn:active { transform: scale(0.96); }
+.sound-toggle { position: absolute; top: env(safe-area-inset-top); right: 0; margin: 16px 20px; width: 36px; height: 36px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.06); border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; z-index: 6; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game" width="800" height="1752"></canvas>
+  <div class="hud">
+    <div class="pill">Score<strong id="score">0</strong></div>
+    <div class="pill">Best<strong id="best">0</strong></div>
+  </div>
+  <button class="sound-toggle" id="soundBtn" aria-label="Toggle sound" style="opacity: 1;">&#9836;</button>
+  <div class="screen" id="title">
+    <div class="title">Block Stacker</div>
+    <div class="sub">Tap the screen to drop<br>the moving block onto the stack</div>
+    <button class="btn" id="startBtn">Start</button>
+  </div>
+  <div class="screen hidden" id="over">
+    <div class="sub">Final Score</div>
+    <div class="big-score" id="finalScore">0</div>
+    <div class="sub" id="bestNote"></div>
+    <button class="btn" id="restartBtn">Play Again</button>
+  </div>
+</div>
+<script>
+(function () {
+  var canvas = document.getElementById('game');
+  var ctx = canvas.getContext('2d');
+  var scoreEl = document.getElementById('score');
+  var bestEl = document.getElementById('best');
+  var finalEl = document.getElementById('finalScore');
+  var bestNoteEl = document.getElementById('bestNote');
+  var titleScreen = document.getElementById('title');
+  var overScreen = document.getElementById('over');
+  var startBtn = document.getElementById('startBtn');
+  var restartBtn = document.getElementById('restartBtn');
+  var soundBtn = document.getElementById('soundBtn');
+  var W = 0, H = 0, DPR = 1, BH = 24;
+  var state = 'title';
+  var stack = [], cur = null, dir = 1, speed = 2;
+  var score = 0, best = 0;
+  var camera = 0, flash = 0, fallingPiece = null;
+  var soundOn = true;
+  var audio = null;
+  function ensureAudio() {
+    if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; } }
+    if (audio && audio.state === 'suspended') audio.resume();
+  }
+  function beep(freq, dur, type, vol) {
+    if (!soundOn || !audio) return;
+    var o = audio.createOscillator();
+    var g = audio.createGain();
+    o.type = type || 'sine';
+    o.frequency.value = freq;
+    g.gain.value = vol || 0.08;
+    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + dur);
+    o.connect(g); g.connect(audio.destination);
+    o.start(); o.stop(audio.currentTime + dur);
+  }
+  try { best = parseInt(localStorage.getItem('stacker_best') || '0', 10) || 0; soundOn = localStorage.getItem('stacker_sound') !== '0'; } catch (e) {}
+  bestEl.textContent = best;
+  soundBtn.textContent = soundOn ? '\u266a' : '\u266b';
+  soundBtn.style.opacity = soundOn ? '1' : '0.4';
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = Math.floor(W * DPR); canvas.height = Math.floor(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    BH = Math.max(22, Math.min(34, H * 0.045));
+  }
+  function reset() {
+    resize();
+    var initialW = Math.min(W * 0.55, 260);
+    stack = [{ x: (W - initialW) / 2, w: initialW }];
+    score = 0; speed = Math.max(2.0, W * 0.007);
+    camera = 0; flash = 0; fallingPiece = null;
+    scoreEl.textContent = 0; spawn();
+  }
+  function spawn() {
+    var t = stack[stack.length - 1];
+    var fromLeft = stack.length % 2 === 1;
+    if (fromLeft) { cur = { x: 0, w: t.w }; dir = 1; }
+    else { cur = { x: W - t.w, w: t.w }; dir = -1; }
+  }
+  var playY = function() { return H * 0.25; };
+  var stackYOf = function(i) { return H - (i + 1) * BH + camera; };
+  var curY = function() { return stackYOf(stack.length); };
+  function tick() {
+    if (state === 'playing' && cur) {
+      cur.x += speed * dir;
+      if (cur.x + cur.w > W) { cur.x = W - cur.w; dir = -1; }
+      if (cur.x < 0) { cur.x = 0; dir = 1; }
+      var cy = curY();
+      if (cy < playY()) camera += (playY() - cy) * 0.12;
+    }
+    if (flash > 0.02) flash *= 0.88; else flash = 0;
+    if (fallingPiece) {
+      fallingPiece.vy += 0.6; fallingPiece.y += fallingPiece.vy;
+      fallingPiece.rot += fallingPiece.spin;
+      if (fallingPiece.y > H + 100) fallingPiece = null;
+    }
+  }
+  var hueAt = function(i) { return (215 + i * 7) % 360; };
+  function drawBlock(x, y, w, hue, alpha) {
+    if (alpha === undefined) alpha = 1;
+    ctx.fillStyle = 'hsla(' + hue + ',70%,60%,' + alpha + ')';
+    ctx.fillRect(x, y, w, BH);
+    ctx.fillStyle = 'hsla(' + hue + ',78%,74%,' + alpha + ')';
+    ctx.fillRect(x, y, w, 3);
+    ctx.fillStyle = 'hsla(' + hue + ',72%,42%,' + alpha + ')';
+    ctx.fillRect(x, y + BH - 2, w, 2);
+  }
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.font = 'bold ' + Math.floor(H * 0.18) + 'px -apple-system, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(state === 'playing' ? score : '', W / 2, H * 0.22);
+    for (var i = 0; i < stack.length; i++) {
+      var y = stackYOf(i);
+      if (y > H || y < -BH) continue;
+      drawBlock(stack[i].x, y, stack[i].w, hueAt(i));
+    }
+    if (state === 'playing' && cur) drawBlock(cur.x, curY(), cur.w, hueAt(stack.length));
+    if (fallingPiece) {
+      ctx.save();
+      ctx.translate(fallingPiece.x + fallingPiece.w / 2, fallingPiece.y + BH / 2);
+      ctx.rotate(fallingPiece.rot);
+      drawBlock(-fallingPiece.w / 2, -BH / 2, fallingPiece.w, fallingPiece.hue);
+      ctx.restore();
+    }
+    if (flash > 0.02) { ctx.fillStyle = 'rgba(255,255,255,' + (flash * 0.3) + ')'; ctx.fillRect(0, 0, W, H); }
+  }
+  function drop() {
+    if (state !== 'playing' || !cur) return;
+    var t = stack[stack.length - 1];
+    var start = Math.max(t.x, cur.x);
+    var end = Math.min(t.x + t.w, cur.x + cur.w);
+    var w = end - start;
+    if (w <= 0) {
+      state = 'over';
+      fallingPiece = { x: cur.x, y: curY(), w: cur.w, vy: 0, rot: 0, spin: (Math.random() - 0.5) * 0.2, hue: hueAt(stack.length) };
+      beep(160, 0.4, 'sawtooth', 0.1);
+      setTimeout(function() { beep(110, 0.5, 'sawtooth', 0.08); }, 120);
+      var newRecord = score > best;
+      if (newRecord) { best = score; bestEl.textContent = best; try { localStorage.setItem('stacker_best', String(best)); } catch (e) {} }
+      finalEl.textContent = score;
+      bestNoteEl.textContent = newRecord ? 'New record!' : 'Best: ' + best;
+      setTimeout(function() { overScreen.classList.remove('hidden'); }, 700);
+      return;
+    }
+    var isPerfect = Math.abs(cur.x - t.x) < 2;
+    if (isPerfect) {
+      stack.push({ x: t.x, w: t.w }); flash = 1;
+      beep(880, 0.12, 'square', 0.06); beep(1320, 0.08, 'square', 0.05);
+    } else {
+      var lostLeft = cur.x < t.x ? t.x - cur.x : 0;
+      var lostRight = (cur.x + cur.w) > (t.x + t.w) ? (cur.x + cur.w) - (t.x + t.w) : 0;
+      if (lostLeft > 0) { fallingPiece = { x: cur.x, y: curY(), w: lostLeft, vy: 0, rot: 0, spin: -0.08, hue: hueAt(stack.length) }; }
+      else if (lostRight > 0) { fallingPiece = { x: t.x + t.w, y: curY(), w: lostRight, vy: 0, rot: 0, spin: 0.08, hue: hueAt(stack.length) }; }
+      stack.push({ x: start, w: w });
+      beep(440 + Math.min(score, 30) * 12, 0.08, 'triangle', 0.05);
+    }
+    score++; scoreEl.textContent = score;
+    speed = Math.min(speed + 0.13, W * 0.022); spawn();
+  }
+  var TAP_TIME_MS = 400, TAP_MOVE_PX = 12, pStart = null;
+  canvas.addEventListener('pointerdown', function(e) { ensureAudio(); pStart = { x: e.clientX, y: e.clientY, t: Date.now() }; });
+  canvas.addEventListener('pointermove', function(e) { if (!pStart) return; if (Math.abs(e.clientX - pStart.x) > TAP_MOVE_PX || Math.abs(e.clientY - pStart.y) > TAP_MOVE_PX) pStart = null; });
+  canvas.addEventListener('pointerup', function(e) { if (!pStart) return; var elapsed = Date.now() - pStart.t; pStart = null; if (elapsed > TAP_TIME_MS) return; if (state === 'playing') drop(); });
+  canvas.addEventListener('pointercancel', function() { pStart = null; });
+  startBtn.addEventListener('click', function(e) { e.stopPropagation(); ensureAudio(); titleScreen.classList.add('hidden'); state = 'playing'; reset(); });
+  restartBtn.addEventListener('click', function(e) { e.stopPropagation(); ensureAudio(); overScreen.classList.add('hidden'); state = 'playing'; reset(); });
+  soundBtn.addEventListener('click', function(e) { e.stopPropagation(); soundOn = !soundOn; soundBtn.textContent = soundOn ? '\u266a' : '\u266b'; soundBtn.style.opacity = soundOn ? '1' : '0.4'; try { localStorage.setItem('stacker_sound', soundOn ? '1' : '0'); } catch (e) {} if (soundOn) ensureAudio(); });
+  window.addEventListener('keydown', function(e) { if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); ensureAudio(); if (state === 'title') startBtn.click(); else if (state === 'over') restartBtn.click(); else drop(); } });
+  window.addEventListener('resize', function() { if (state !== 'playing') resize(); });
+  window.addEventListener('orientationchange', function() { setTimeout(resize, 100); });
+  resize(); reset();
+  function loop() { tick(); draw(); requestAnimationFrame(loop); }
+  loop();
+})();
+</script>
+</body></html>
