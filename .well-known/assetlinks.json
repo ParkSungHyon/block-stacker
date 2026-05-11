@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.parksunghyon.blockstacker",
+        "sha256_cert_fingerprints": ["E3:C4:78:D7:6F:B2:0B:63:DF:FD:0C:B6:3C:2F:BA:94:DD:15:84:6F:BC:A4:01:C7:CD:9F:BD:6B:15:78:61:A1"]
+      }
+    }]
